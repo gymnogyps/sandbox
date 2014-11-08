@@ -1,0 +1,277 @@
+#!/bin/bash
+
+# $Id: bash_sandbox,v 1.3 2014/11/07 00:03:18 condor Exp condor $
+ 
+# File    : bash_sandbox
+# Purpose : This script demonstrates a command line utility with
+#           a persistent state provided by Sqlite3
+# Date    : 10/15/14 1:48 am UTC
+# Author  : Joseph Pesco
+# License : GPLv3
+# Gufi    : 96e9a6a7-08a2-450e-8c2b-3d9b9d706cf6
+ 
+# This script does not pretend to be production quality! 
+#
+# A second method of managing pids provisionally called "Dynamic Pid 
+# Tracking" and labelled DYNAMIC_PIDS is implemented here for the 
+# time in this script.  Here after the original method of managing pids 
+# is called "Static Pid Tracking" and labelled STATIC_PIDS.    
+# Note: it is likely that many a script developers consider leaving such 
+# labels around if the underlying script is broken bad form.  
+#
+# Tracking pids dynamically really means going to the shell each time the 
+# pids require enumeration.  Static means keeping our own local list of the 
+# pids in the database.        
+
+# ----------------------------------------------------------------------------- 
+
+# Instructions: 1. Create an initial Sqlite3 database file.
+#                  Unlike other relational dabasebase managers Sqlite3
+#                  does not provide a server and has no central datestore.  
+#               2. Point DBPATH to the directory containing the file created
+#                  in step 1.  If required change the value of DBNAME
+#                  to reflect the name of the file created in step 1.   
+#               3. Source this file at the bottom of .bashrc file.
+
+# -----------------------------------------------------------------------------
+  
+BUGGY=1
+
+(($BUGGY)) && {
+	echo "$LINENO DEBUG Shell Navigation Assistant \$PWD: $PWD" 
+	echo "$LINENO DEBUG File: bash_sandbox"
+	echo "$LINENO DEBUG Command Line $@"
+	echo "$LINENO DEBUG PID \$\$ $$"
+} &> /dev/stderr
+ 
+DYN_PIDS=1    # Dynamic pid tracking
+STAT_PIDS=0   # Static pid tracking
+
+trap sighandler_update SIGUSR1
+trap sighandler_exit  EXIT
+
+DBPATH="/home/condor/BB2"
+DBNAME="rocket.db"
+DATABASE="${DBPATH}/${DBNAME}" 
+
+(($STATIC_PIDS)) && echo \
+	"INSERT INTO assistant  ( process ) VALUES ( $$ ); " |  sqlite3 "$DATABASE"
+
+# -----------------------------------------------------------------------------
+ 
+sighandler_exit () {
+
+   local BUGGY=0
+
+   (($STATIC_PIDS)) && \
+	echo "DELETE FROM assistant WHERE  process = $$;"   | sqlite3 "$DATABASE"
+}
+ 
+sighandler_update () {
+
+   local BUGGY=1
+   local STEP=0
+ 
+   # This function is called whenever a new shell starts.  he state of the database changes and
+   # data in memory needs to updated to reflect the changes. 
+   # echo "update target array"
+   # unset target
+   IFS=$'\n'
+   id=( ` echo "SELECT target_id FROM target;" | sqlite3 "$DATABASE" ` )
+   target=( ` echo "SELECT active_target FROM target;"  | sqlite3 "$DATABASE" ` )
+   IFS=$' \t\n'
+   echo "INSERT OR IGNORE INTO persistant_enviroment (enviroment_id, working_path ) VALUES ( 0, '${PWD}');" | sqlite3 "$DATABASE"
+   WP=`echo "SELECT working_path FROM persistant_enviroment WHERE enviroment_id = 0 ;"  | sqlite3 "$DATABASE"`
+
+   (($BUGGY)) && {
+      echo "$LINENO $FUNCNAME \$WP $WP"
+      echo "Number of target directories: ${#target[@]}" 
+      (($STEP)) && read -p"Pause"
+   }
+}
+
+nav_help () {
+
+cat <<eod
+
+	This is the Shell Navigation Assistant help message.  This message is part 
+specification and part help message.  Although the author holds that this is a 
+Bash shell script please be aware that certain operations are better suited for 
+implementation with other techonologies.  This effort is perhaps the fourth 
+from scratch implemention.  
+
+	The absolute barebones purpose of Shell Navigation Assistant is to 
+provide a Persistant Shell Variable.  The persistance is provided by Sqlite3.  
+There are two interfaces provided.
+
+End User Interface
+--------------------------------------------------------------------------------
+
+nav <help> <add> <cd> <rmdir>        
+
+
+Developer Interface Interface
+--------------------------------------------------------------------------------
+nav_help
+nav_add
+nav_cd
+nav_rmdir
+
+eod
+
+}
+ 
+nav_cd () {
+
+	local BUGGY=0
+
+        # We will display a list of directories and request the user pick one.  
+	# We will cd to this directory and also make it the working path.  If 
+	# we open a new shell,  this script will cd to that that working path.
+ 
+	local x=0
+	for dir in "${target[@]}"; do
+ 
+		echo $x $dir
+      		let x++
+   	done
+
+	read -p"Select Destination: " index
+	echo "UPDATE persistant_enviroment SET working_path = '${target[${index}]}' \
+	WHERE enviroment_id =0 ;"  | sqlite3 "$DATABASE"
+   	cd "${target[${index}]}"
+}
+ 
+nav_rmdir () {
+
+	local BUGGY=0
+ 
+	local x=0
+	for dir in "${target[@]}"; do
+ 
+		echo $x $dir
+      		let x++
+   		done
+   		read -p"Select Target to Delete: " index
+   		delete_id=${id[${index}]}
+   		echo "DELETE FROM  target WHERE target_id = $delete_id;" | \
+			sqlite3 "$DATABASE"
+		# To Do: Add dynamic pids!
+		# IFS=$' '
+   		# # If we want to neglect outselves from the signal add `grep -v "$$"'
+   		# PROCESSES=`echo "SELECT process FROM assistant;" | sqlite3 "$DATABASE"  `
+   		# echo $PROCESSES | xargs -n 1  kill -s SIGUSR1
+		# # Alternate implementation:
+   		# # kill -s SIGUSR1 $iPROCESSES
+   		# IFS=$' \t\n' 
+}
+ 
+ 
+nav_add () {
+
+	local BUGGY=1 
+ 
+	echo "INSERT INTO target ( active_target ) VALUES ( '$PWD' );" | sqlite3 "$DATABASE"
+   	IFS=$' '
+   	# grep -v "$$"
+   	# PROCESSES=`echo "SELECT process FROM assistant;" | sqlite3 "$DBPATH/rocket.db"  `
+   	# echo $PROCESSES | xargs -n 1  kill -s SIGUSR1
+
+
+  	IFS=$'\n'
+  	# ACTUAL_PIDS=( `ps -ea | grep bash | awk '{ print $1 }' ` )
+	ACTUAL_PIDS=( ` ps -e -o pid,uname,comm  | grep $LOGNAME   | awk ' /bash/ { print $1 }'     ` )
+	IFS=$' \t\n'
+
+	for (( x=0; $x < ${#ACTUAL_PIDS[@]}; x++ )); do 
+		echo "pid ${ACTUAL_PIDS[${x}]}"  
+	  	kill -s SIGUSR1 ${ACTUAL_PIDS[${x}]} 
+	done   
+
+   	echo "Number of Pids: ${#ACTUAL_PIDS[@]}"
+   	((0)) && for p in  ${ACTUAL_PIDS[@]}  ; do
+
+      		echo "updating pid  $p"
+
+		read -p"Pause" 
+      		kill -s SIGUSR1 $p
+   	done
+	# kill -s SIGUSR1 $PROCESSES
+   	IFS=$' \t\n' 
+}
+ 
+
+nav_dashboard () {
+
+	local BUGGY=0
+
+	ACTUAL_PIDS=( `ps -ea | grep bash | awk '{ print $1 }' ` )
+   	STORED_PIDS=( `echo "SELECT process FROM assistant;" | sqlite3 "$DATABASE" ` )
+
+   	NUM_ACT=${#ACTUAL_PIDS[@]}
+  	NUM_STO=${#ACTUAL_PIDS[@]}
+
+   	if [ $NUM_ACT -gt $NUM_STO ]; then 
+		INDEX_MAX=$NUM_ACT
+   	elif [ $NUM_ACT -lt $NUM_STO ]; then
+		INDEX_MAX=$NUM_STO
+   	elif [ $NUM_ACT -eq $NUM_STO ]; then 
+		INDEX_MAX=$NUM_STO
+	fi
+
+   	echo "Number of pids stored in the database: \$ NUM_STO                       : $NUM_STO"
+   	echo "Number of pids actual pids (detirmined by ps -ea | grep bash \$NUM_ACT  : $NUM_ACT"
+
+	echo "-------------------------"
+	echo -e "\tactual \tstored"
+	echo "_________________________"
+
+   	index=0
+	while [ $index -lt $INDEX_MAX ]; do
+		echo  -e "$index \t${ACTUAL_PIDS[${index}]} \t${STORED_PIDS[${index}]}"
+		let index++
+	done 
+}
+
+
+nav () {
+
+	case $1 in
+
+		help ) 
+			nav_help 
+		;;
+		add )
+			nav_add
+		;;
+		cd ) 
+			nav_cd
+		;;
+		rmdir )
+			nav_rmdir
+		;;
+		dashboard )
+			nav_dashboard
+		;;
+	esac
+
+}
+
+sighandler_update
+
+(($BUGGY)) && nav_dashboard
+ 
+if [ -d "$WP" ]; then
+   cd "$WP"
+else
+   echo "ERROR Working Path variable does not point to a vald directory$WP does not exist"
+fi
+
+# $Log: bash_sandbox,v $
+# Revision 1.3  2014/11/07 00:03:18  condor
+# Added specification like text to the the help message.
+#
+# Revision 1.2  2014/11/06 23:17:27  condor
+# Added RCS tags.
+#
+

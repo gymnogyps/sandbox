@@ -1,0 +1,11 @@
+# Replacement .bashrc shipped with CFS Shell Assistant
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+	. /etc/bashrc
+fi
+
+. ~/sandbox/bash_sandbox
+
+PATH="$PATH:~/sandbox"
+

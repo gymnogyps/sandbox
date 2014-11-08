@@ -1,4 +1,4 @@
-sandbox
-=======
+assistant
+=========
 
-The CFS Shell Navigation Assistant.
+Bash shell assistant.
